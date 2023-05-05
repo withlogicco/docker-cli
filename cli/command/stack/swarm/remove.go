@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/client"
 	"github.com/pkg/errors"
 )
 
@@ -59,6 +60,13 @@ func RunRemove(dockerCli command.Cli, opts options.Remove) error {
 
 		if hasError {
 			errs = append(errs, fmt.Sprintf("Failed to remove some resources from stack: %s", namespace))
+		}
+
+		if !opts.Detach {
+			err = waitOnTasks(ctx, client, namespace)
+			if err != nil {
+				fmt.Println(dockerCli.Err(), err)
+			}
 		}
 	}
 
@@ -137,4 +145,46 @@ func removeConfigs(
 		}
 	}
 	return hasError
+}
+
+var numberedStates = map[swarm.TaskState]int64{
+	swarm.TaskStateNew:       1,
+	swarm.TaskStateAllocated: 2,
+	swarm.TaskStatePending:   3,
+	swarm.TaskStateAssigned:  4,
+	swarm.TaskStateAccepted:  5,
+	swarm.TaskStatePreparing: 6,
+	swarm.TaskStateReady:     7,
+	swarm.TaskStateStarting:  8,
+	swarm.TaskStateRunning:   9,
+	swarm.TaskStateComplete:  10,
+	swarm.TaskStateShutdown:  11,
+	swarm.TaskStateFailed:    12,
+	swarm.TaskStateRejected:  13,
+}
+
+func terminalState(state swarm.TaskState) bool {
+	return numberedStates[state] > numberedStates[swarm.TaskStateRunning]
+}
+
+func waitOnTasks(ctx context.Context, apiclient client.APIClient, namespace string) error {
+	terminalStatesReached := 0
+	for {
+		tasks, err := getStackTasks(ctx, apiclient, namespace)
+		if err != nil {
+			return fmt.Errorf("Failed to get tasks for stack: %s: %w", namespace, err)
+		}
+
+		for _, task := range tasks {
+			if terminalState(task.Status.State) {
+				terminalStatesReached++
+				break
+			}
+		}
+
+		if terminalStatesReached == len(tasks) {
+			break
+		}
+	}
+	return nil
 }

@@ -28,6 +28,9 @@ func newRemoveCommand(dockerCli command.Cli) *cobra.Command {
 			return completeNames(dockerCli)(cmd, args, toComplete)
 		},
 	}
+
+	flags := cmd.Flags()
+	flags.BoolVarP(&opts.Detach, "detach", "d", true, "Exit immediately instead of waiting for the stack tasks to converge")
 	return cmd
 }
 
